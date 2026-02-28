@@ -3,6 +3,12 @@
 A technical verification prototype for QR code reading via camera.
 Built to validate integration with a CakePHP 3.7 + jQuery 3.3.1 environment.
 
+## Live Demo
+
+Try it out: **https://takusaotome.github.io/qr-reader-prototype/**
+
+> Open the URL on an iPhone/iPad to test with the rear camera. HTTPS is provided by GitHub Pages, so camera access works without additional setup.
+
 ## Tech Stack
 
 | Item | Version | Notes |
