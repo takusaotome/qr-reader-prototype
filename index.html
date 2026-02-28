@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>QRコード読み取りプロトタイプ</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"
+        integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8="
+        crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"
+        integrity="sha256-ZgsSQ3sddH4+aLi+BoXAjLcoFAEQrSE/FnsUtm+LHY4="
+        crossorigin="anonymous"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+  background: #f5f5f5;
+  color: #333;
+  padding: 16px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+
+h1 {
+  font-size: 18px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+/* Status indicator */
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background-color 0.3s, color 0.3s;
+}
+.status-bar .status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background-color 0.3s;
+}
+
+.status-idle        { background: #e8e8e8; color: #666; }
+.status-idle .status-dot { background: #999; }
+
+.status-starting    { background: #fff3cd; color: #856404; }
+.status-starting .status-dot { background: #ffc107; animation: pulse 1s infinite; }
+
+.status-scanning    { background: #d4edda; color: #155724; }
+.status-scanning .status-dot { background: #28a745; animation: pulse 1s infinite; }
+
+.status-stopping    { background: #fff3cd; color: #856404; }
+.status-stopping .status-dot { background: #ffc107; }
+
+.status-error       { background: #f8d7da; color: #721c24; }
+.status-error .status-dot { background: #dc3545; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Camera preview */
+#qr-reader {
+  width: 100%;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  min-height: 60px;
+}
+#qr-reader video {
+  border-radius: 8px;
+}
+
+/* Buttons */
+.btn-group {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.btn {
+  flex: 1;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn-start {
+  background: #007aff;
+  color: #fff;
+}
+.btn-stop {
+  background: #ff3b30;
+  color: #fff;
+}
+
+/* Result input */
+.result-section {
+  margin-bottom: 16px;
+}
+.result-section label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+#result-input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 16px;
+  border: 2px solid #ccc;
+  border-radius: 8px;
+  transition: border-color 0.3s, background-color 0.3s;
+  outline: none;
+}
+#result-input:focus {
+  border-color: #007aff;
+}
+#result-input.highlight {
+  border-color: #28a745;
+  background-color: #eaffea;
+}
+
+/* History */
+.history-section {
+  background: #fff;
+  border-radius: 8px;
+  padding: 12px;
+  border: 1px solid #ddd;
+}
+.history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.history-header h2 {
+  font-size: 14px;
+}
+.btn-clear {
+  font-size: 12px;
+  padding: 4px 10px;
+  background: #e8e8e8;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+#history-list {
+  list-style: none;
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+#history-list li {
+  padding: 6px 0;
+  border-bottom: 1px solid #eee;
+  word-break: break-all;
+}
+#history-list li:last-child {
+  border-bottom: none;
+}
+#history-list .timestamp {
+  color: #999;
+  font-size: 11px;
+  margin-right: 6px;
+}
+.history-empty {
+  color: #999;
+  font-size: 13px;
+  text-align: center;
+  padding: 12px 0;
+}
+
+/* Error message */
+#error-message {
+  display: none;
+  background: #f8d7da;
+  color: #721c24;
+  padding: 10px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+</style>
+</head>
+<body>
+
+<h1>QRコード読み取りプロトタイプ</h1>
+
+<div id="status-bar" class="status-bar status-idle">
+  <span class="status-dot"></span>
+  <span id="status-text">待機中</span>
+</div>
+
+<div id="qr-reader"></div>
+
+<div id="error-message"></div>
+
+<div class="btn-group">
+  <button id="btn-start" class="btn btn-start">スキャン開始</button>
+  <button id="btn-stop" class="btn btn-stop" disabled>スキャン停止</button>
+</div>
+
+<div class="result-section">
+  <label for="result-input">読み取り結果:</label>
+  <input type="text" id="result-input" placeholder="QRコードをかざす or 手入力">
+</div>
+
+<div class="history-section">
+  <div class="history-header">
+    <h2>読み取り履歴</h2>
+    <button id="btn-clear-history" class="btn-clear">クリア</button>
+  </div>
+  <ul id="history-list">
+    <li class="history-empty">履歴はありません</li>
+  </ul>
+</div>
+
+<script>
+(function($) {
+  'use strict';
+
+  // ---------------------------------------------------------------------------
+  // QrScannerModule
+  // ---------------------------------------------------------------------------
+  var QrScannerModule = {
+    // --- Configuration ---
+    config: {
+      enableEnterFallback: false,
+      qrboxSize: 250,
+      fps: 10
+    },
+
+    // --- Callbacks (override from outside) ---
+    onScanSuccess: function(decodedText) {},
+    onError: function(errorMessage, type) {},
+    onStateChange: function(state) {},
+
+    // --- Internal state ---
+    _state: 'idle',
+    _html5QrCode: null,
+    _hasHandledScan: false,
+    _targetElementId: null,
+    _startGeneration: 0,           // incremented on each start/destroy to detect stale promises
+
+    // --- Valid state transitions ---
+    _validTransitions: {
+      idle:     ['starting'],
+      starting: ['scanning', 'error'],
+      scanning: ['stopping', 'error'],
+      stopping: ['idle', 'error'],
+      error:    ['starting']
+    },
+
+    _setState: function(newState) {
+      if (!this._validTransitions[this._state] ||
+          this._validTransitions[this._state].indexOf(newState) === -1) {
+        console.warn('[QrScanner] Invalid transition: ' + this._state + ' -> ' + newState);
+        return false;
+      }
+      var oldState = this._state;
+      this._state = newState;
+      console.log('[QrScanner] State: ' + oldState + ' -> ' + newState);
+      this.onStateChange(newState);
+      return true;
+    },
+
+    getState: function() {
+      return this._state;
+    },
+
+    // --- Public methods ---
+    start: function(targetElementId) {
+      var self = this;
+      if (this._state !== 'idle' && this._state !== 'error') {
+        console.warn('[QrScanner] start() ignored in state: ' + this._state);
+        return;
+      }
+
+      if (!this._setState('starting')) return;
+
+      var generation = ++this._startGeneration;
+      this._targetElementId = targetElementId;
+      this._hasHandledScan = false;
+
+      if (this._html5QrCode) {
+        try { this._html5QrCode.clear(); } catch(e) {}
+      }
+      this._html5QrCode = new Html5Qrcode(targetElementId);
+
+      var scanConfig = {
+        fps: this.config.fps,
+        qrbox: { width: this.config.qrboxSize, height: this.config.qrboxSize }
+      };
+
+      // Guard: ignore stale promise callbacks after destroy()
+      function isStale() { return generation !== self._startGeneration; }
+
+      this._html5QrCode.start(
+        { facingMode: { exact: 'environment' } },
+        scanConfig,
+        function(decodedText) { self._handleScanResult(decodedText); },
+        function() { /* no QR detected — silent */ }
+      ).then(function() {
+        if (isStale()) return;
+        self._setState('scanning');
+      }).catch(function(firstErr) {
+        if (isStale()) return;
+        console.warn('[QrScanner] exact environment failed, trying ideal:', firstErr);
+        // Recreate instance after failed start
+        try { self._html5QrCode.clear(); } catch(e) {}
+        self._html5QrCode = new Html5Qrcode(self._targetElementId);
+
+        self._html5QrCode.start(
+          { facingMode: { ideal: 'environment' } },
+          scanConfig,
+          function(decodedText) { self._handleScanResult(decodedText); },
+          function() {}
+        ).then(function() {
+          if (isStale()) return;
+          self._setState('scanning');
+        }).catch(function(secondErr) {
+          if (isStale()) return;
+          self._handleStartError(secondErr);
+        });
+      });
+    },
+
+    _handleStartError: function(err) {
+      var errorMsg = (err && err.message) ? err.message : String(err);
+      var errorType = 'unknown';
+
+      if (/permission/i.test(errorMsg) || /not allowed/i.test(errorMsg) || /denied/i.test(errorMsg)) {
+        errorType = 'permission_denied';
+      } else if (/not found/i.test(errorMsg) || /no camera/i.test(errorMsg) || /not readable/i.test(errorMsg)) {
+        errorType = 'camera_not_found';
+      }
+
+      this._setState('error');
+      this.onError(errorMsg, errorType);
+    },
+
+    _handleScanResult: function(decodedText) {
+      if (this._hasHandledScan) return;
+      if (this._state !== 'scanning') return;
+
+      this._hasHandledScan = true;
+      console.log('[QrScanner] Scan result: ' + decodedText);
+
+      try {
+        this.onScanSuccess(decodedText);
+
+        if (this.config.enableEnterFallback) {
+          var enterEvent = $.Event('keydown', { key: 'Enter', keyCode: 13, which: 13 });
+          $('#result-input').trigger(enterEvent);
+        }
+      } catch (e) {
+        console.error('[QrScanner] onScanSuccess threw:', e);
+      } finally {
+        this.stop();
+      }
+    },
+
+    stop: function() {
+      var self = this;
+      if (this._state !== 'scanning') {
+        console.warn('[QrScanner] stop() ignored in state: ' + this._state);
+        return;
+      }
+
+      if (!this._setState('stopping')) return;
+
+      this._html5QrCode.stop().then(function() {
+        self._hasHandledScan = false;
+        self._setState('idle');
+      }).catch(function(err) {
+        console.error('[QrScanner] Stop error:', err);
+        self._hasHandledScan = false;
+        // stopping → error is a valid transition
+        self._setState('error');
+      });
+    },
+
+    isActive: function() {
+      return this._state === 'scanning' || this._state === 'starting';
+    },
+
+    destroy: function() {
+      // Invalidate any in-flight start() promises
+      this._startGeneration++;
+
+      // Capture current instance so async callbacks don't affect a future instance
+      var instance = this._html5QrCode;
+      if (instance) {
+        if (this._state === 'scanning' || this._state === 'starting') {
+          try {
+            instance.stop().then(function() {
+              try { instance.clear(); } catch(e) {}
+            }).catch(function() {
+              try { instance.clear(); } catch(e) {}
+            });
+          } catch(e) {
+            try { instance.clear(); } catch(e2) {}
+          }
+        } else {
+          try { instance.clear(); } catch(e) {}
+        }
+      }
+      this._state = 'idle';
+      this.onStateChange('idle');
+      this._html5QrCode = null;
+      this._hasHandledScan = false;
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // UI Controller
+  // ---------------------------------------------------------------------------
+  var MAX_HISTORY = 20;
+  var statusLabels = {
+    idle: '待機中',
+    starting: 'カメラ起動中...',
+    scanning: 'スキャン中',
+    stopping: '停止中...',
+    error: 'エラー'
+  };
+
+  function updateStatusUI(state) {
+    var $bar = $('#status-bar');
+    $bar.removeClass('status-idle status-starting status-scanning status-stopping status-error');
+    $bar.addClass('status-' + state);
+    $('#status-text').text(statusLabels[state] || state);
+  }
+
+  function updateButtonState(state) {
+    var $start = $('#btn-start');
+    var $stop = $('#btn-stop');
+
+    switch (state) {
+      case 'idle':
+        $start.prop('disabled', false);
+        $stop.prop('disabled', true);
+        break;
+      case 'starting':
+      case 'stopping':
+        $start.prop('disabled', true);
+        $stop.prop('disabled', true);
+        break;
+      case 'scanning':
+        $start.prop('disabled', true);
+        $stop.prop('disabled', false);
+        break;
+      case 'error':
+        $start.prop('disabled', false);
+        $stop.prop('disabled', true);
+        break;
+    }
+  }
+
+  function setResult(text) {
+    var $input = $('#result-input');
+    $input.val(text).trigger('input');
+    $input.addClass('highlight');
+    setTimeout(function() {
+      $input.removeClass('highlight');
+    }, 2000);
+  }
+
+  function addHistory(text) {
+    var $list = $('#history-list');
+    $list.find('.history-empty').remove();
+
+    var now = new Date();
+    var ts = ('0' + now.getHours()).slice(-2) + ':' +
+             ('0' + now.getMinutes()).slice(-2) + ':' +
+             ('0' + now.getSeconds()).slice(-2);
+
+    var $li = $('<li>')
+      .append($('<span class="timestamp">').text(ts))
+      .append($('<span>').text(text));
+
+    $list.prepend($li);
+
+    var $items = $list.find('li');
+    if ($items.length > MAX_HISTORY) {
+      $items.slice(MAX_HISTORY).remove();
+    }
+  }
+
+  function showError(message) {
+    var $err = $('#error-message');
+    $err.text(message).show();
+    setTimeout(function() {
+      $err.fadeOut();
+    }, 5000);
+  }
+
+  // --- Wire callbacks ---
+  QrScannerModule.onStateChange = function(state) {
+    updateStatusUI(state);
+    updateButtonState(state);
+  };
+
+  QrScannerModule.onScanSuccess = function(decodedText) {
+    console.log('[Demo] onScanSuccess: ' + decodedText);
+    setResult(decodedText);
+    addHistory(decodedText);
+  };
+
+  QrScannerModule.onError = function(errorMessage, type) {
+    console.error('[Demo] onError [' + type + ']: ' + errorMessage);
+    var userMsg;
+    switch (type) {
+      case 'permission_denied':
+        userMsg = 'カメラの使用が許可されていません。ブラウザの設定でカメラへのアクセスを許可してください。';
+        break;
+      case 'camera_not_found':
+        userMsg = 'カメラが見つかりません。デバイスにカメラが接続されているか確認してください。';
+        break;
+      default:
+        userMsg = 'カメラの起動に失敗しました: ' + errorMessage;
+    }
+    showError(userMsg);
+  };
+
+  // --- Button handlers ---
+  $(document).ready(function() {
+    updateStatusUI('idle');
+    updateButtonState('idle');
+
+    $('#btn-start').on('click', function() {
+      $('#error-message').hide();
+      QrScannerModule.start('qr-reader');
+    });
+
+    $('#btn-stop').on('click', function() {
+      QrScannerModule.stop();
+    });
+
+    $('#btn-clear-history').on('click', function() {
+      $('#history-list').html('<li class="history-empty">履歴はありません</li>');
+    });
+
+    // pagehide: primary for iOS Safari
+    $(window).on('pagehide', function() {
+      console.log('[Lifecycle] pagehide — releasing camera');
+      QrScannerModule.destroy();
+    });
+
+    // visibilitychange: supplement for background transitions
+    $(document).on('visibilitychange', function() {
+      if (document.visibilityState === 'hidden' && QrScannerModule.isActive()) {
+        console.log('[Lifecycle] visibilitychange hidden — releasing camera');
+        QrScannerModule.destroy();
+        updateStatusUI('idle');
+        updateButtonState('idle');
+      }
+    });
+  });
+
+  window.QrScannerModule = QrScannerModule;
+
+})(jQuery);
+</script>
+</body>
+</html>
