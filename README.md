@@ -1,118 +1,118 @@
-# QRコード読み取りプロトタイプ
+# QR Code Reader Prototype
 
-見積明細R2 No.6「QRコード読み取り（全3画面）」の技術検証用プロトタイプ。
-CakePHP 3.7 + jQuery 3.3.1 環境への統合を前提に、カメラ経由のQR読み取り機能を単体で検証する。
+A technical verification prototype for QR code reading via camera.
+Built to validate integration with a CakePHP 3.7 + jQuery 3.3.1 environment.
 
-## 技術スタック
+## Tech Stack
 
-| 項目 | バージョン | 備考 |
-|------|-----------|------|
-| html5-qrcode | 2.3.8 | QRスキャンライブラリ（CDN） |
-| jQuery | 3.3.1 | 本番と同一バージョン（CDN） |
-| 対象ブラウザ | iOS Safari | 背面カメラ固定 |
+| Item | Version | Notes |
+|------|---------|-------|
+| html5-qrcode | 2.3.8 | QR scanning library (CDN) |
+| jQuery | 3.3.1 | Same version as production (CDN) |
+| Target Browser | iOS Safari | Rear camera only |
 
-## ローカルでの確認方法
+## Local Setup
 
-### PC（ブラウザ確認）
+### PC (Browser)
 
 ```bash
 cd experiment/qr-reader-prototype
 python3 -m http.server 8000
 ```
 
-ブラウザで `http://localhost:8000` を開く。
+Open `http://localhost:8000` in your browser.
 
-> PC内蔵カメラが使われる。QRコードの画像をスマホ等に表示して読み取り可能。
+> The built-in webcam will be used. You can display a QR code image on a phone to test scanning.
 
-### 実機（iPhone / iPad）確認 — ngrok
+### Device Testing (iPhone / iPad) — ngrok
 
-iOS Safari ではカメラアクセスに HTTPS が必須のため、ngrok を使用する。
+iOS Safari requires HTTPS for camera access, so use ngrok.
 
-#### 1. ngrok インストール（未導入の場合）
+#### 1. Install ngrok (if not installed)
 
 ```bash
 brew install ngrok
 ngrok config add-authtoken <YOUR_TOKEN>
 ```
 
-> トークンは https://dashboard.ngrok.com で取得。
+> Get your token at https://dashboard.ngrok.com.
 
-#### 2. ローカルサーバー起動
+#### 2. Start the local server
 
 ```bash
 cd experiment/qr-reader-prototype
 python3 -m http.server 8000
 ```
 
-#### 3. ngrok でHTTPSトンネル作成
+#### 3. Create an HTTPS tunnel with ngrok
 
-別ターミナルで:
+In a separate terminal:
 
 ```bash
 ngrok http 8000
 ```
 
-表示された `https://xxxx.ngrok-free.app` のURLをiPhoneのSafariで開く。
+Open the displayed `https://xxxx.ngrok-free.app` URL in Safari on your iPhone.
 
-#### 注意事項
+#### Notes
 
-- ngrok 無料プランは接続数・帯域に制限あり（検証用途には十分）
-- 毎回URLが変わるため、QRコードでURLを端末に送ると便利
+- The free ngrok plan has connection and bandwidth limits (sufficient for testing)
+- The URL changes each time; sending the URL via QR code to your device is convenient
 
-## カメラ起動方式
+## Camera Initialization
 
-背面カメラを2段フォールバックで取得する:
+The rear camera is acquired with a 2-step fallback:
 
-1. `facingMode: { exact: "environment" }` — 背面カメラを厳密指定
-2. 失敗時 → `facingMode: { ideal: "environment" }` — 背面カメラ優先で再試行
+1. `facingMode: { exact: "environment" }` — strictly request rear camera
+2. On failure → `facingMode: { ideal: "environment" }` — retry with rear camera preferred
 
-カメラ選択UIは設けない（実運用では背面カメラ一択のため）。
+No camera selection UI is provided (rear camera is the only option in production use).
 
-## 結果テキストボックス
+## Result Text Field
 
-- QRコード読み取り成功時に自動入力される
-- 手入力も可能（QRコードが読み取れない場合の代替手段として）
-- QR読み取り時は緑色ハイライトで視覚フィードバック
+- Auto-populated when a QR code is successfully scanned
+- Manual input is also supported (as a fallback when QR scanning fails)
+- Green highlight provides visual feedback on successful scan
 
 ## QrScannerModule API
 
-### コールバック
+### Callbacks
 
 ```javascript
-// 読み取り成功時（主経路）
+// On successful scan (primary path)
 QrScannerModule.onScanSuccess = function(decodedText) {
-  console.log('読み取り値:', decodedText);
+  console.log('Scanned value:', decodedText);
 };
 
-// エラー発生時
+// On error
 // type: 'permission_denied' | 'camera_not_found' | 'unknown'
 QrScannerModule.onError = function(errorMessage, type) {
   console.error(type, errorMessage);
 };
 
-// 状態変化時
+// On state change
 // state: 'idle' | 'starting' | 'scanning' | 'stopping' | 'error'
 QrScannerModule.onStateChange = function(state) {
-  console.log('状態:', state);
+  console.log('State:', state);
 };
 ```
 
-### メソッド
+### Methods
 
 ```javascript
-QrScannerModule.start('qr-reader');  // スキャン開始（idle時のみ）
-QrScannerModule.stop();              // スキャン停止（scanning時のみ）
-QrScannerModule.isActive();          // scanning or starting → true
-QrScannerModule.destroy();           // 完全クリーンアップ
+QrScannerModule.start('qr-reader');  // Start scanning (only when idle)
+QrScannerModule.stop();              // Stop scanning (only when scanning)
+QrScannerModule.isActive();          // true if scanning or starting
+QrScannerModule.destroy();           // Full cleanup
 ```
 
-### 設定
+### Configuration
 
 ```javascript
-QrScannerModule.config.enableEnterFallback = true;  // Enterキー発火を有効化
+QrScannerModule.config.enableEnterFallback = true;  // Enable Enter key event firing
 ```
 
-### 状態遷移図
+### State Diagram
 
 ```
 idle → starting → scanning → stopping → idle
@@ -120,63 +120,63 @@ idle → starting → scanning → stopping → idle
 error ←─────────── error ←─── error
 ```
 
-- 不正な遷移は無視される（例: scanning中にstart()を呼んでも何も起きない）
-- 各遷移時に `onStateChange` が発火する
+- Invalid transitions are ignored (e.g., calling start() while scanning does nothing)
+- `onStateChange` fires on every transition
 
-## 検証チェックリスト
+## Verification Checklist
 
-| # | 項目 | 確認方法 |
-|---|------|----------|
-| 1 | カメラ起動 | 「スキャン開始」タップ → プレビュー表示 + ステータス「スキャン中」 |
-| 2 | QR読み取り | QRかざす → テキストボックスに値 + 緑ハイライト + コンソールログ |
-| 3 | 手入力 | テキストボックスに直接入力できること |
-| 4 | スキャン停止 | 「スキャン停止」タップ → カメラ停止 + ステータス「待機中」 |
-| 5 | 連打テスト | 開始→即停止→即開始 → エラーなく遷移 |
-| 6 | 二重検出防止 | 同一QRを映し続ける → `onScanSuccess` が1回のみ |
-| 7 | カメラ権限拒否 | 権限拒否 → エラーメッセージ表示 |
-| 8 | タブ切替 | バックグラウンドへ → カメラ解放 |
-| 9 | ページ離脱 | 別ページへ遷移 → カメラ解放 |
+| # | Item | How to Verify |
+|---|------|---------------|
+| 1 | Camera startup | Tap "Start Scan" → preview displays + status shows "Scanning" |
+| 2 | QR reading | Hold QR code → value in text field + green highlight + console log |
+| 3 | Manual input | Directly type into the text field |
+| 4 | Stop scanning | Tap "Stop Scan" → camera stops + status shows "Idle" |
+| 5 | Rapid tap test | Start → immediately stop → immediately start → no errors |
+| 6 | Duplicate detection prevention | Keep same QR in view → `onScanSuccess` fires only once |
+| 7 | Camera permission denied | Deny permission → error message displayed |
+| 8 | Tab switch | Go to background → camera released |
+| 9 | Page navigation | Navigate away → camera released |
 
-## 本番統合時の注意点
+## Production Integration Notes
 
-### ライブラリ配置
+### Library Placement
 
 ```
-webroot/js/lib/html5-qrcode.min.js  ← CDNからダウンロードしてローカル配置
+webroot/js/lib/html5-qrcode.min.js  ← Download from CDN and place locally
 ```
 
-- バージョン 2.3.8 を固定。SRI（Subresource Integrity）推奨
-- CDN参照は本番では使用しない
+- Pin version 2.3.8. SRI (Subresource Integrity) recommended
+- Do not use CDN references in production
 
 ### jQuery
 
-本番の jQuery 3.3.1 をそのまま使用。追加読み込み不要。
+Use the existing production jQuery 3.3.1. No additional loading required.
 
-### QrScannerModule の組み込み
+### Integrating QrScannerModule
 
-1. `QrScannerModule` のコードを独立 `.js` ファイルに分離
-2. CakePHPのViewテンプレートで読み込み
-3. `onScanSuccess` にページ固有のハンドラを設定（例: Ajax送信、画面遷移）
+1. Extract `QrScannerModule` code into a standalone `.js` file
+2. Load it in the CakePHP View template
+3. Set page-specific handlers on `onScanSuccess` (e.g., Ajax submission, page navigation)
 
-### Enter キーフォールバック
+### Enter Key Fallback
 
-既存画面がEnterキーでフォーム送信する設計の場合:
+If the existing screen uses Enter key for form submission:
 
 ```javascript
 QrScannerModule.config.enableEnterFallback = true;
 ```
 
-これにより、QR読み取り成功時に `onScanSuccess` に加えて `keydown(Enter)` イベントも発火する。
+This causes a `keydown(Enter)` event to fire in addition to `onScanSuccess` on successful QR scan.
 
-### 読み取り履歴
+### Scan History
 
-プロトタイプのデバッグ用機能。本番では履歴セクションのHTMLを除外し、`addHistory()` 呼び出しを削除する。
+Debug-only feature for the prototype. In production, remove the history section HTML and delete `addHistory()` calls.
 
-### カメラ解放
+### Camera Release
 
-本番でも以下のイベントハンドラを必ず設定すること:
+The following event handlers must be configured in production as well:
 
-- `pagehide` — iOS Safariで確実に動作するカメラ解放
-- `visibilitychange` — バックグラウンド遷移時の補助
+- `pagehide` — reliable camera release on iOS Safari
+- `visibilitychange` — supplementary for background transitions
 
-`beforeunload` はiOS Safariで不安定なため使用しない。
+Do not use `beforeunload` as it is unreliable on iOS Safari.

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>QRコード読み取りプロトタイプ</title>
+<title>QR Code Reader Prototype</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"
         integrity="sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8="
         crossorigin="anonymous"></script>
@@ -202,11 +202,11 @@ h1 {
 </head>
 <body>
 
-<h1>QRコード読み取りプロトタイプ</h1>
+<h1>QR Code Reader Prototype</h1>
 
 <div id="status-bar" class="status-bar status-idle">
   <span class="status-dot"></span>
-  <span id="status-text">待機中</span>
+  <span id="status-text">Idle</span>
 </div>
 
 <div id="qr-reader"></div>
@@ -214,22 +214,22 @@ h1 {
 <div id="error-message"></div>
 
 <div class="btn-group">
-  <button id="btn-start" class="btn btn-start">スキャン開始</button>
-  <button id="btn-stop" class="btn btn-stop" disabled>スキャン停止</button>
+  <button id="btn-start" class="btn btn-start">Start Scan</button>
+  <button id="btn-stop" class="btn btn-stop" disabled>Stop Scan</button>
 </div>
 
 <div class="result-section">
-  <label for="result-input">読み取り結果:</label>
-  <input type="text" id="result-input" placeholder="QRコードをかざす or 手入力">
+  <label for="result-input">Scan Result:</label>
+  <input type="text" id="result-input" placeholder="Scan QR code or type manually">
 </div>
 
 <div class="history-section">
   <div class="history-header">
-    <h2>読み取り履歴</h2>
-    <button id="btn-clear-history" class="btn-clear">クリア</button>
+    <h2>Scan History</h2>
+    <button id="btn-clear-history" class="btn-clear">Clear</button>
   </div>
   <ul id="history-list">
-    <li class="history-empty">履歴はありません</li>
+    <li class="history-empty">No history</li>
   </ul>
 </div>
 
@@ -435,11 +435,11 @@ h1 {
   // ---------------------------------------------------------------------------
   var MAX_HISTORY = 20;
   var statusLabels = {
-    idle: '待機中',
-    starting: 'カメラ起動中...',
-    scanning: 'スキャン中',
-    stopping: '停止中...',
-    error: 'エラー'
+    idle: 'Idle',
+    starting: 'Starting camera...',
+    scanning: 'Scanning',
+    stopping: 'Stopping...',
+    error: 'Error'
   };
 
   function updateStatusUI(state) {
@@ -529,13 +529,13 @@ h1 {
     var userMsg;
     switch (type) {
       case 'permission_denied':
-        userMsg = 'カメラの使用が許可されていません。ブラウザの設定でカメラへのアクセスを許可してください。';
+        userMsg = 'Camera access denied. Please allow camera access in your browser settings.';
         break;
       case 'camera_not_found':
-        userMsg = 'カメラが見つかりません。デバイスにカメラが接続されているか確認してください。';
+        userMsg = 'No camera found. Please check that a camera is connected to your device.';
         break;
       default:
-        userMsg = 'カメラの起動に失敗しました: ' + errorMessage;
+        userMsg = 'Failed to start camera: ' + errorMessage;
     }
     showError(userMsg);
   };
@@ -555,7 +555,7 @@ h1 {
     });
 
     $('#btn-clear-history').on('click', function() {
-      $('#history-list').html('<li class="history-empty">履歴はありません</li>');
+      $('#history-list').html('<li class="history-empty">No history</li>');
     });
 
     // pagehide: primary for iOS Safari

@@ -1,80 +1,80 @@
-# QRコード読み取りプロトタイプ 設計書
+# QR Code Reader Prototype — Design Document
 
-| 項目 | 内容 |
-|------|------|
-| 文書ID | QR-PROTO-DESIGN-001 |
-| 対象 | `experiment/qr-reader-prototype/` |
-| 作成日 | 2026-02-27 |
-| 作成者 | 開発チーム |
-| 文書性質 | 実装の規約書（将来の本番統合・保守時の準拠仕様） |
+| Item | Details |
+|------|---------|
+| Document ID | QR-PROTO-DESIGN-001 |
+| Scope | `experiment/qr-reader-prototype/` |
+| Created | 2026-02-27 |
+| Author | Development Team |
+| Document Type | Implementation specification (normative reference for future production integration and maintenance) |
 
-### 改版履歴
+### Revision History
 
-| 版 | 日付 | 内容 |
-|----|------|------|
-| 1.0 | 2026-02-27 | 初版作成 |
-| 1.1 | 2026-02-27 | コードレビュー対応: try/finally, _startGeneration, destroy()インスタンスキャプチャ |
-| 1.2 | 2026-02-27 | 設計書レビュー対応: 非同期競合仕様の具体化、状態機械のdestroy()規定、UI Controller層の分離記述、HTTPS前提条件の追加 |
-| 1.3 | 2026-02-27 | 再レビュー対応: stop()失敗回復パスを動作フローに追記、destroy()コード例に同期例外の注記追加、未使用のerror→idle遷移を削除 |
+| Rev | Date | Changes |
+|-----|------|---------|
+| 1.0 | 2026-02-27 | Initial version |
+| 1.1 | 2026-02-27 | Code review: try/finally, _startGeneration, destroy() instance capture |
+| 1.2 | 2026-02-27 | Design review: async race condition spec, destroy() state machine rules, UI Controller layer separation, HTTPS prerequisite |
+| 1.3 | 2026-02-27 | Re-review: stop() failure recovery path in flow, destroy() sync exception note, removed unused error→idle transition |
 
 ---
 
-## 1. 概要
+## 1. Overview
 
-QRコード読み取り機能の開発に先立ち、カメラ経由のQRコード読み取り機能を独立プロトタイプとして実装する。
-本番プロジェクト（CakePHP 3.7 + jQuery 3.3.1、iOS Safari対象）へ後日統合することを前提に、技術スタックを揃えた形で作成する。
+Prior to developing the QR code reading feature, a standalone prototype is built to validate camera-based QR code scanning.
+The prototype uses the same tech stack as the production project (CakePHP 3.7 + jQuery 3.3.1, targeting iOS Safari) to facilitate future integration.
 
-## 2. 技術選定と前提条件
+## 2. Technology Selection and Prerequisites
 
-| 項目 | 選定 | バージョン | 備考 |
-|------|------|-----------|------|
-| QRスキャンライブラリ | html5-qrcode | 2.3.8 | iOS Safari対応済み、`Html5Qrcode` ローレベルAPI使用 |
-| jQuery | jQuery | 3.3.1 | 本番と同一バージョン |
+| Item | Selection | Version | Notes |
+|------|-----------|---------|-------|
+| QR scanning library | html5-qrcode | 2.3.8 | iOS Safari compatible, uses `Html5Qrcode` low-level API |
+| jQuery | jQuery | 3.3.1 | Same version as production |
 | SRI (html5-qrcode) | — | — | `sha256-ZgsSQ3sddH4+aLi+BoXAjLcoFAEQrSE/FnsUtm+LHY4=` |
 | SRI (jQuery) | — | — | `sha256-FgpCb/KJQlLNfOu91ta32o/NMZxltwRo8QtmkMRdAu8=` |
 
-- **プロトタイプ**: CDN経由（バージョン固定 + SRI）
-- **本番**: `webroot/js/lib/html5-qrcode.min.js` にローカル配置
+- **Prototype**: CDN delivery (pinned version + SRI)
+- **Production**: Local placement at `webroot/js/lib/html5-qrcode.min.js`
 
-### HTTPS要件（必須）
+### HTTPS Requirement (Mandatory)
 
-iOS Safari ではカメラアクセス（`getUserMedia`）に **HTTPS が必須**（localhost除く）。
-本番環境のサーバーにSSL証明書が設定されていることが前提条件となる。
-プロトタイプの実機テストでは ngrok でHTTPSトンネルを使用する。
+iOS Safari requires **HTTPS** for camera access (`getUserMedia`), except on localhost.
+The production server must have an SSL certificate configured.
+For prototype device testing, use ngrok to create an HTTPS tunnel.
 
-## 3. ファイル構成
+## 3. File Structure
 
 ```text
 experiment/qr-reader-prototype/
-├── index.html                            # プロトタイプ本体（HTML + CSS + JS 単一ファイル）
-├── README.md                             # 使い方・ngrok実機テスト手順・本番統合時の注意点
+├── index.html                            # Prototype (single-file HTML + CSS + JS)
+├── README.md                             # Usage, ngrok device testing, production integration notes
 └── docs/
-    └── qr-reader-prototype-design.md     # 本設計書
+    └── qr-reader-prototype-design.md     # This design document
 ```
 
-## 4. カメラ起動方式
+## 4. Camera Initialization
 
-背面カメラを2段フォールバックで取得する。カメラ選択UIは設けない（実運用では背面カメラ一択のため）。
+The rear camera is acquired with a 2-step fallback. No camera selection UI is provided (rear camera is the only option in production use).
 
 ```text
-1. facingMode: { exact: "environment" }    ← 背面カメラ厳密指定
-     ↓ 失敗時
-   インスタンス再生成（Html5Qrcode.clear() → new Html5Qrcode()）
+1. facingMode: { exact: "environment" }    ← Strict rear camera request
+     ↓ on failure
+   Recreate instance (Html5Qrcode.clear() → new Html5Qrcode())
      ↓
-2. facingMode: { ideal: "environment" }    ← 背面カメラ優先で再試行
-     ↓ 失敗時
-   onError(message, type) を発火 → エラー状態へ遷移
+2. facingMode: { ideal: "environment" }    ← Retry with rear camera preferred
+     ↓ on failure
+   Fire onError(message, type) → transition to error state
 ```
 
-### インスタンス再生成の理由
+### Why Instance Recreation is Needed
 
-html5-qrcode ライブラリは `start()` 失敗後に内部状態が遷移中のまま残る場合がある。
-同一インスタンスで再度 `start()` を呼ぶと "Cannot transition to a new state, already under transition" エラーが発生するため、
-フォールバック前に `clear()` → `new Html5Qrcode()` でインスタンスを再生成する。
+The html5-qrcode library may leave its internal state in a transitioning state after a `start()` failure.
+Calling `start()` again on the same instance causes a "Cannot transition to a new state, already under transition" error.
+Therefore, before fallback, the instance is recreated via `clear()` → `new Html5Qrcode()`.
 
-## 5. QrScannerModule の設計
+## 5. QrScannerModule Design
 
-### 5.1 状態機械
+### 5.1 State Machine
 
 ```text
 idle ──→ starting ──→ scanning ──→ stopping ──→ idle
@@ -82,71 +82,71 @@ idle ──→ starting ──→ scanning ──→ stopping ──→ idle
   │          ↓            ↓            ↓
   └─────── error ←────── error ←───── error
 
-  ※ destroy() は任意の状態から idle へ強制遷移（下記「destroy() の特別規定」参照）
+  * destroy() forces transition to idle from any state (see "destroy() Special Rules" below)
 ```
 
-#### 通常遷移テーブル
+#### Normal Transition Table
 
-| 現在の状態 | 許可される遷移先 | 遷移契機 |
-|-----------|----------------|---------|
-| `idle` | `starting` | `start()` 呼び出し |
-| `starting` | `scanning` | カメラ起動成功 |
-| `starting` | `error` | カメラ起動失敗 |
-| `scanning` | `stopping` | `stop()` 呼び出し / QR検出後の自動停止 |
-| `scanning` | `error` | 予期せぬエラー |
-| `stopping` | `idle` | カメラ停止完了 |
-| `stopping` | `error` | カメラ停止失敗 |
-| `error` | `starting` | `start()` 呼び出し（エラーからの再試行） |
+| Current State | Allowed Transitions | Trigger |
+|---------------|---------------------|---------|
+| `idle` | `starting` | `start()` called |
+| `starting` | `scanning` | Camera started successfully |
+| `starting` | `error` | Camera start failed |
+| `scanning` | `stopping` | `stop()` called / auto-stop after QR detection |
+| `scanning` | `error` | Unexpected error |
+| `stopping` | `idle` | Camera stop completed |
+| `stopping` | `error` | Camera stop failed |
+| `error` | `starting` | `start()` called (retry from error) |
 
-- 通常遷移はすべて `_setState()` を経由し、`onStateChange(newState)` を発火する
-- 許可されない遷移は `_setState()` が拒否し、`console.warn` を出力
+- All normal transitions go through `_setState()`, which fires `onStateChange(newState)`
+- Disallowed transitions are rejected by `_setState()` with a `console.warn`
 
-#### destroy() の特別規定
+#### destroy() Special Rules
 
-`destroy()` はページ離脱・バックグラウンド遷移時の緊急クリーンアップであり、**通常の状態遷移とは独立した強制リセット操作**として扱う。
+`destroy()` is an emergency cleanup for page unload / background transitions and is treated as a **forced reset operation independent of the normal state machine**.
 
-- **任意の状態から `idle` へ強制遷移**する（`_setState()` は経由しない）
-- `_state = 'idle'` を直接代入した後、`onStateChange('idle')` を明示的に発火する
-- `_setState()` を経由しない理由: `destroy()` は `stopping` 中や `starting` 中など、通常遷移テーブルで `idle` への直接遷移が許可されていない状態からも呼ばれる必要があるため
+- **Forces transition to `idle` from any state** (does not go through `_setState()`)
+- Directly assigns `_state = 'idle'`, then explicitly fires `onStateChange('idle')`
+- Reason for bypassing `_setState()`: `destroy()` must be callable from states like `stopping` or `starting`, where the normal transition table does not allow a direct transition to `idle`
 
-### 5.2 非同期競合防止
+### 5.2 Async Race Condition Prevention
 
-#### 5.2.1 _startGeneration カウンター（Promiseの無効化）
+#### 5.2.1 _startGeneration Counter (Promise Invalidation)
 
-`start()` 呼び出しごとにインクリメントされるカウンター。`destroy()` でもインクリメントする。
-非同期の `.then()` / `.catch()` コールバック内で `isStale()` を判定し、
-`destroy()` 後に到着した古いPromiseの結果が状態を上書きすることを防止する。
+A counter incremented on each `start()` call. Also incremented by `destroy()`.
+Used in async `.then()` / `.catch()` callbacks to check `isStale()`,
+preventing stale promise results from overwriting state after `destroy()`.
 
 ```javascript
 var generation = ++this._startGeneration;
 function isStale() { return generation !== self._startGeneration; }
 
-// Promise callback 内
+// Inside promise callback
 .then(function() {
-  if (isStale()) return;  // destroy() 済みなら何もしない
+  if (isStale()) return;  // skip if destroy() has been called
   self._setState('scanning');
 })
 ```
 
-#### 5.2.2 destroy() のインスタンスキャプチャ（設計必須）
+#### 5.2.2 destroy() Instance Capture (Design Requirement)
 
-`destroy()` 内の `stop().then(…clear…)` は非同期で実行される。
-この間に `start()` が呼ばれると `this._html5QrCode` が新インスタンスに差し替わり、
-古い非同期コールバックが `this._html5QrCode.clear()` で**新しいインスタンスを誤って破棄する**競合が発生する。
+The `stop().then(…clear…)` chain inside `destroy()` runs asynchronously.
+If `start()` is called during this window, `this._html5QrCode` gets replaced with a new instance,
+and the stale async callback calling `this._html5QrCode.clear()` would **incorrectly destroy the new instance**.
 
-**規定**: `destroy()` では、非同期処理の開始前に対象インスタンスをローカル変数にキャプチャし、
-コールバック内ではローカル変数経由でのみ旧インスタンスを操作すること。
+**Rule**: In `destroy()`, capture the target instance in a local variable before starting async operations.
+Callbacks must operate on the old instance only through the local variable.
 
 ```javascript
 destroy: function() {
   this._startGeneration++;
 
-  // 【必須】現在のインスタンスをローカル変数にキャプチャ
+  // [REQUIRED] Capture current instance in a local variable
   var instance = this._html5QrCode;
   if (instance) {
     if (this._state === 'scanning' || this._state === 'starting') {
       instance.stop().then(function() {
-        instance.clear();     // ← this._html5QrCode ではなく instance を使用
+        instance.clear();     // ← use 'instance', not 'this._html5QrCode'
       }).catch(function() {
         instance.clear();
       });
@@ -161,20 +161,20 @@ destroy: function() {
 }
 ```
 
-> **実装上の補足**: `starting` 状態でライブラリが `stop()` をサポートしない場合、`stop()` が同期的に例外を投げる可能性がある。実装では `instance.stop()` の呼び出し自体を `try/catch` で囲み、同期例外時にも `instance.clear()` を確実に実行すること。各 `clear()` 呼び出しも個別に `try/catch` で囲む。
+> **Implementation note**: In the `starting` state, the library may not support `stop()`, and `stop()` may throw a synchronous exception. The implementation wraps the `instance.stop()` call itself in a `try/catch` to ensure `instance.clear()` executes even on synchronous exceptions. Each `clear()` call is also individually wrapped in `try/catch`.
 
-#### 5.2.3 _hasHandledScan ロック（二重検出防止）
+#### 5.2.3 _hasHandledScan Lock (Duplicate Detection Prevention)
 
-1回のスキャン成功後、`stop()` 完了まで後続のQR検出通知を無視する。
+After a successful scan, subsequent QR detection notifications are ignored until `stop()` completes.
 
-- `_handleScanResult()` 先頭で `_hasHandledScan === true` なら即 return
-- `_handleScanResult()` 先頭で `_state !== 'scanning'` なら即 return
-- `stop()` 完了時（`idle` 遷移時）に `false` にリセット
+- Return immediately at the top of `_handleScanResult()` if `_hasHandledScan === true`
+- Return immediately at the top of `_handleScanResult()` if `_state !== 'scanning'`
+- Reset to `false` when `stop()` completes (on transition to `idle`)
 
-### 5.3 コールバック例外安全性
+### 5.3 Callback Exception Safety
 
-`_handleScanResult()` 内で `onScanSuccess()` を `try/finally` で囲む。
-外部コールバックが例外を投げても `finally` ブロックで `stop()` が必ず実行される。
+In `_handleScanResult()`, `onScanSuccess()` is wrapped in `try/finally`.
+Even if the external callback throws an exception, `stop()` is guaranteed to execute in the `finally` block.
 
 ```javascript
 _handleScanResult: function(decodedText) {
@@ -184,71 +184,71 @@ _handleScanResult: function(decodedText) {
   this._hasHandledScan = true;
   try {
     this.onScanSuccess(decodedText);
-    // enableEnterFallback 処理
+    // enableEnterFallback processing
   } catch (e) {
     console.error('[QrScanner] onScanSuccess threw:', e);
   } finally {
-    this.stop();  // 例外時も必ず実行
+    this.stop();  // always executed even on exception
   }
 }
 ```
 
-**例外発生時の回復フロー**:
-1. `onScanSuccess()` が例外 → `catch` がログ出力
-2. `finally` で `stop()` 実行 → `scanning` → `stopping`
-3. `stop()` 内の Promise 完了 → `_hasHandledScan = false` にリセット → `stopping` → `idle`
-4. `idle` 状態に復帰 → 再スキャン可能
+**Recovery flow on exception**:
+1. `onScanSuccess()` throws → `catch` logs the error
+2. `finally` executes `stop()` → `scanning` → `stopping`
+3. Promise inside `stop()` resolves → `_hasHandledScan = false` reset → `stopping` → `idle`
+4. Returns to `idle` state → ready for rescan
 
-### 5.4 公開API
+### 5.4 Public API
 
 ```javascript
 var QrScannerModule = {
-  // --- 設定 ---
+  // --- Configuration ---
   config: {
-    enableEnterFallback: false,  // true時のみEnterキーイベントも発火
-    qrboxSize: 250,              // QR読み取り枠サイズ（px）
-    fps: 10                      // スキャンフレームレート
+    enableEnterFallback: false,  // fires Enter key event only when true
+    qrboxSize: 250,              // QR scanning frame size (px)
+    fps: 10                      // scan frame rate
   },
 
-  // --- コールバック（外部から差し替え可能）---
-  onScanSuccess: function(decodedText) {},   // 読み取り成功時（主経路）
-  onError: function(errorMessage, type) {},  // エラー（permission_denied / camera_not_found / unknown）
+  // --- Callbacks (replaceable from outside) ---
+  onScanSuccess: function(decodedText) {},   // on successful scan (primary path)
+  onError: function(errorMessage, type) {},  // error (permission_denied / camera_not_found / unknown)
   onStateChange: function(state) {},         // idle / starting / scanning / stopping / error
 
-  // --- メソッド ---
-  start: function(targetElementId) {},  // idle / error 時のみ受付
-  stop: function() {},                  // scanning 時のみ受付
-  isActive: function() {},              // scanning or starting → true
-  destroy: function() {}                // 任意状態から強制クリーンアップ（5.1 特別規定参照）
+  // --- Methods ---
+  start: function(targetElementId) {},  // accepted only in idle / error
+  stop: function() {},                  // accepted only in scanning
+  isActive: function() {},              // true if scanning or starting
+  destroy: function() {}                // forced cleanup from any state (see 5.1 Special Rules)
 };
 ```
 
-### 5.5 カメラ解放
+### 5.5 Camera Release
 
-| イベント | 用途 | 備考 |
-|---------|------|------|
-| `pagehide` | メインのカメラ解放 | iOS Safariで安定動作（必須） |
-| `visibilitychange` | バックグラウンド遷移検出 | 補助的に併用 |
+| Event | Purpose | Notes |
+|-------|---------|-------|
+| `pagehide` | Primary camera release | Reliable on iOS Safari (required) |
+| `visibilitychange` | Background transition detection | Supplementary |
 
-`beforeunload` はiOS Safariで発火が不安定なため使用しない。
+Do not use `beforeunload` as it fires unreliably on iOS Safari.
 
-## 6. 画面構成
+## 6. Screen Layout
 
-### 6.1 画面要素
+### 6.1 Screen Elements
 
-| # | 要素 | 説明 |
-|---|------|------|
-| 1 | ステータスバー | 状態機械に連動した色変化（5色）+ テキスト + パルスアニメーション |
-| 2 | カメラプレビュー領域 | `html5-qrcode` が描画する `<video>` ストリーム（`#qr-reader`） |
-| 3 | エラーメッセージ | 赤背景、5秒後にフェードアウト |
-| 4 | スキャン開始/停止ボタン | 状態に応じて `disabled` 制御（`starting` / `stopping` 中は両方無効） |
-| 5 | 読み取り結果テキストボックス | QR読み取り時に自動入力 + 手入力も可能（`readonly` なし） |
-| 6 | 読み取り履歴 | デバッグ用。最大20件、タイムスタンプ付き、「クリア」ボタン。本番では除外する |
+| # | Element | Description |
+|---|---------|-------------|
+| 1 | Status bar | Color changes linked to state machine (5 colors) + text + pulse animation |
+| 2 | Camera preview area | `<video>` stream rendered by `html5-qrcode` (`#qr-reader`) |
+| 3 | Error message | Red background, fades out after 5 seconds |
+| 4 | Start/Stop scan buttons | `disabled` controlled by state (`starting` / `stopping` disables both) |
+| 5 | Scan result text field | Auto-populated on QR scan + manual input allowed (no `readonly`) |
+| 6 | Scan history | Debug only. Max 20 items, timestamped, "Clear" button. Remove in production |
 
-### 6.2 UI Controller層
+### 6.2 UI Controller Layer
 
-QrScannerModule はUIに依存しない純粋なスキャンエンジンとして設計する。
-UI Controller層はプロトタイプの `index.html` 内に同梱されるが、モジュールとは以下のコールバック接続のみで結合する。
+QrScannerModule is designed as a pure scan engine with no UI dependencies.
+The UI Controller layer is bundled within the prototype's `index.html` and connected to the module only through the following callbacks.
 
 ```text
 QrScannerModule                      UI Controller
@@ -258,146 +258,146 @@ onScanSuccess(text)   ──────────→  setResult(text) + addHi
 onError(msg, type)    ──────────→  showError(userMessage)
 ```
 
-#### UI Controller の関数一覧
+#### UI Controller Functions
 
-| 関数 | 責務 |
-|------|------|
-| `updateStatusUI(state)` | ステータスバーのCSS class切替 + テキスト更新 |
-| `updateButtonState(state)` | 開始/停止ボタンの `disabled` 制御 |
-| `setResult(text)` | テキストボックスへの値セット + `trigger('input')` + 緑ハイライト（2秒） |
-| `addHistory(text)` | 履歴リストへの追加（最大20件、FIFO） |
-| `showError(message)` | エラーメッセージの表示（5秒後フェードアウト） |
+| Function | Responsibility |
+|----------|----------------|
+| `updateStatusUI(state)` | Toggle status bar CSS class + update text |
+| `updateButtonState(state)` | Control `disabled` state of start/stop buttons |
+| `setResult(text)` | Set value in text field + `trigger('input')` + green highlight (2s) |
+| `addHistory(text)` | Add entry to history list (max 20, FIFO) |
+| `showError(message)` | Display error message (fades out after 5s) |
 
-本番統合時は、UI Controller層をCakePHPのViewテンプレートに合わせて差し替える。
-QrScannerModuleのコールバックに本番固有のハンドラ（Ajax送信、画面遷移等）をバインドする。
+For production integration, replace the UI Controller layer to match the CakePHP View template.
+Bind production-specific handlers (Ajax submission, page navigation, etc.) to QrScannerModule callbacks.
 
-### 6.3 ステータスバーの色定義
+### 6.3 Status Bar Color Definitions
 
-| 状態 | 背景色 | テキスト色 | ドット色 | アニメーション |
-|------|--------|-----------|---------|--------------|
-| `idle` | `#e8e8e8` | `#666` | `#999` | なし |
-| `starting` | `#fff3cd` | `#856404` | `#ffc107` | パルス |
-| `scanning` | `#d4edda` | `#155724` | `#28a745` | パルス |
-| `stopping` | `#fff3cd` | `#856404` | `#ffc107` | なし |
-| `error` | `#f8d7da` | `#721c24` | `#dc3545` | なし |
+| State | Background | Text Color | Dot Color | Animation |
+|-------|------------|------------|-----------|-----------|
+| `idle` | `#e8e8e8` | `#666` | `#999` | None |
+| `starting` | `#fff3cd` | `#856404` | `#ffc107` | Pulse |
+| `scanning` | `#d4edda` | `#155724` | `#28a745` | Pulse |
+| `stopping` | `#fff3cd` | `#856404` | `#ffc107` | None |
+| `error` | `#f8d7da` | `#721c24` | `#dc3545` | None |
 
-### 6.4 ボタン状態制御
+### 6.4 Button State Control
 
-| 状態 | スキャン開始 | スキャン停止 |
-|------|------------|------------|
-| `idle` | 有効 | 無効 |
-| `starting` | 無効 | 無効 |
-| `scanning` | 無効 | 有効 |
-| `stopping` | 無効 | 無効 |
-| `error` | 有効 | 無効 |
+| State | Start Scan | Stop Scan |
+|-------|------------|-----------|
+| `idle` | Enabled | Disabled |
+| `starting` | Disabled | Disabled |
+| `scanning` | Disabled | Enabled |
+| `stopping` | Disabled | Disabled |
+| `error` | Enabled | Disabled |
 
-## 7. 動作フロー
+## 7. Operational Flows
 
-### 7.1 正常系
+### 7.1 Normal Flow
 
-1. ユーザーが「スキャン開始」をタップ
+1. User taps "Start Scan"
    → QrScannerModule: `idle` → `starting`
-   → UI Controller: ステータス「カメラ起動中...」（黄）、両ボタン無効
-2. カメラ起動（`exact: "environment"` → 失敗時 `ideal: "environment"` にフォールバック）
-3. カメラ起動成功
+   → UI Controller: status "Starting camera..." (yellow), both buttons disabled
+2. Camera starts (`exact: "environment"` → fallback to `ideal: "environment"` on failure)
+3. Camera started successfully
    → QrScannerModule: `starting` → `scanning`
-   → UI Controller: ステータス「スキャン中」（緑）、停止ボタン有効
-4. QRコード検出
+   → UI Controller: status "Scanning" (green), stop button enabled
+4. QR code detected
    → QrScannerModule: `_hasHandledScan = true` → `onScanSuccess(decodedText)` → `stop()`
-   → UI Controller: テキストボックスに値セット + 緑ハイライト + 履歴追加
-5. カメラ停止完了
-   → QrScannerModule: `scanning` → `stopping` → `idle`、`_hasHandledScan = false`
-   → UI Controller: ステータス「待機中」（グレー）、開始ボタン有効
+   → UI Controller: value set in text field + green highlight + history entry added
+5. Camera stop completed
+   → QrScannerModule: `scanning` → `stopping` → `idle`, `_hasHandledScan = false`
+   → UI Controller: status "Idle" (gray), start button enabled
 
-### 7.2 エラー系
+### 7.2 Error Flows
 
-**カメラ起動失敗**（`starting` → `error`）:
-- カメラ権限拒否 → `onError(msg, 'permission_denied')` → UI Controller: エラーメッセージ表示
-- カメラ未検出 → `onError(msg, 'camera_not_found')` → UI Controller: エラーメッセージ表示
-- その他の起動エラー → `onError(msg, 'unknown')` → UI Controller: エラーメッセージ表示
+**Camera start failure** (`starting` → `error`):
+- Permission denied → `onError(msg, 'permission_denied')` → UI Controller: error message displayed
+- Camera not found → `onError(msg, 'camera_not_found')` → UI Controller: error message displayed
+- Other start errors → `onError(msg, 'unknown')` → UI Controller: error message displayed
 
-**カメラ停止失敗**（`stopping` → `error`）:
-- `stop()` 内の `Html5Qrcode.stop()` が reject → `_hasHandledScan = false` にリセット → `error` 状態に遷移
-- UI Controller: ステータス「エラー」（赤）、開始ボタン有効
-- ユーザーが「スキャン開始」をタップ → `error` → `starting` で復帰
+**Camera stop failure** (`stopping` → `error`):
+- `Html5Qrcode.stop()` rejects inside `stop()` → `_hasHandledScan = false` reset → transition to `error` state
+- UI Controller: status "Error" (red), start button enabled
+- User taps "Start Scan" → `error` → `starting` to recover
 
-### 7.3 ページ離脱・バックグラウンド遷移
+### 7.3 Page Unload / Background Transition
 
-- `pagehide` / `visibilitychange(hidden)` → `destroy()` → 強制 `idle` 化（セクション5.1 特別規定）
+- `pagehide` / `visibilitychange(hidden)` → `destroy()` → forced `idle` (Section 5.1 Special Rules)
 
-## 8. テスト環境
+## 8. Test Environment
 
-| 環境 | 手順 |
-|------|------|
-| PC確認 | `python3 -m http.server 8000` → `http://localhost:8000` |
-| 実機確認 | 上記に加え `ngrok http 8000` → HTTPS URL に実機からアクセス |
+| Environment | Steps |
+|-------------|-------|
+| PC testing | `python3 -m http.server 8000` → `http://localhost:8000` |
+| Device testing | Above + `ngrok http 8000` → access HTTPS URL from device |
 
-iOS Safari のカメラアクセスにはHTTPSが必須（localhost除く）。セクション2の前提条件を参照。
+iOS Safari requires HTTPS for camera access (except localhost). See Section 2 prerequisites.
 
-## 9. 検証項目
+## 9. Verification Items
 
-### 9.1 基本機能
+### 9.1 Basic Functionality
 
-| # | 項目 | 期待結果 |
-|---|------|---------|
-| 1 | スキャン開始 | カメラ起動 + ステータス「スキャン中」（緑） |
-| 2 | QR読み取り | テキストボックスに文字列 + 緑ハイライト + `onScanSuccess` 発火 |
-| 3 | 手入力 | テキストボックスに直接入力可能 |
-| 4 | スキャン停止 | カメラ停止 + ステータス「待機中」（グレー） |
+| # | Item | Expected Result |
+|---|------|-----------------|
+| 1 | Start scan | Camera starts + status "Scanning" (green) |
+| 2 | QR reading | Value in text field + green highlight + `onScanSuccess` fired |
+| 3 | Manual input | Text field accepts direct input |
+| 4 | Stop scan | Camera stops + status "Idle" (gray) |
 
-### 9.2 エッジケース
+### 9.2 Edge Cases
 
-| # | 項目 | 期待結果 |
-|---|------|---------|
-| 5 | 連打テスト | 開始→即停止→即開始でエラーなく遷移 |
-| 6 | 二重検出防止 | 同一QRを映し続けて `onScanSuccess` が1回のみ |
-| 7 | カメラ権限拒否 | `onError(msg, 'permission_denied')` + エラーメッセージ表示 |
-| 8 | タブ切替 | `visibilitychange` で `destroy()` → ステータス「待機中」に戻る |
-| 9 | ページ離脱 | `pagehide` で `destroy()` → カメラ解放 |
+| # | Item | Expected Result |
+|---|------|-----------------|
+| 5 | Rapid tap test | Start → immediately stop → immediately start with no errors |
+| 6 | Duplicate detection prevention | Keep same QR in view → `onScanSuccess` fires only once |
+| 7 | Camera permission denied | `onError(msg, 'permission_denied')` + error message displayed |
+| 8 | Tab switch | `visibilitychange` triggers `destroy()` → status returns to "Idle" |
+| 9 | Page navigation | `pagehide` triggers `destroy()` → camera released |
 
-### 9.3 例外・競合
+### 9.3 Exceptions and Race Conditions
 
-| # | 項目 | 期待結果 |
-|---|------|---------|
-| 10 | コールバック例外 | `onScanSuccess` が例外を投げても `stop()` が実行される |
-| 10a | — 例外後の状態復帰 | `state` が `idle` に復帰し、`_hasHandledScan` が `false` にリセットされる |
-| 10b | — 例外後の再スキャン | 「スキャン開始」が有効になり、再度スキャンを実行できる |
-| 11 | destroy競合 | `starting` 中に `destroy()` → 古いPromiseが状態を上書きしない |
-| 12 | destroy後の再開 | `destroy()` 後に `start()` → 新インスタンスで正常にスキャン開始 |
+| # | Item | Expected Result |
+|---|------|-----------------|
+| 10 | Callback exception | `stop()` executes even when `onScanSuccess` throws |
+| 10a | — State recovery after exception | `state` returns to `idle`, `_hasHandledScan` resets to `false` |
+| 10b | — Rescan after exception | "Start Scan" becomes enabled, scanning can be restarted |
+| 11 | destroy() race condition | `destroy()` during `starting` → stale promise does not overwrite state |
+| 12 | Restart after destroy() | `start()` after `destroy()` → new instance starts scanning normally |
 
-## 10. 本番統合時の注意点
+## 10. Production Integration Notes
 
-### ライブラリ配置
+### Library Placement
 
 ```text
-webroot/js/lib/html5-qrcode.min.js  ← CDNからダウンロードしてローカル配置（v2.3.8固定）
+webroot/js/lib/html5-qrcode.min.js  ← Download from CDN and place locally (pin v2.3.8)
 ```
 
-- SRI推奨。CDN参照は本番では使用しない
-- jQuery 3.3.1 は本番既存のものをそのまま使用
+- SRI recommended. Do not use CDN references in production
+- Use existing production jQuery 3.3.1
 
-### QrScannerModule の組み込み
+### Integrating QrScannerModule
 
-1. `QrScannerModule` のコードを独立 `.js` ファイルに分離
-2. CakePHPのViewテンプレートで読み込み
-3. `onScanSuccess` にページ固有のハンドラを設定（例: Ajax送信、画面遷移）
-4. UI Controller層は各画面のViewに合わせて個別実装
+1. Extract `QrScannerModule` code into a standalone `.js` file
+2. Load it in the CakePHP View template
+3. Set page-specific handlers on `onScanSuccess` (e.g., Ajax submission, page navigation)
+4. Implement UI Controller layer individually per screen to match the View
 
-### Enterキーフォールバック
+### Enter Key Fallback
 
-既存画面がEnterキーでフォーム送信する設計の場合:
+If the existing screen uses Enter key for form submission:
 
 ```javascript
 QrScannerModule.config.enableEnterFallback = true;
 ```
 
-QR読み取り成功時に `onScanSuccess` に加えて `keydown(Enter)` イベントも発火する。
+On successful QR scan, a `keydown(Enter)` event fires in addition to `onScanSuccess`.
 
-### 読み取り履歴
+### Scan History
 
-プロトタイプのデバッグ用機能。本番では履歴セクションのHTMLを除外し、`addHistory()` 呼び出しを削除する。
+Debug-only feature for the prototype. In production, remove the history section HTML and delete `addHistory()` calls.
 
-### カメラ解放
+### Camera Release
 
-本番でも `pagehide` + `visibilitychange` イベントハンドラを必ず設定すること。
-`beforeunload` はiOS Safariで不安定なため使用しない。
+Configure `pagehide` + `visibilitychange` event handlers in production as well.
+Do not use `beforeunload` as it is unreliable on iOS Safari.
