@@ -70,14 +70,16 @@ h1 {
 
 /* Camera preview */
 #qr-reader {
-  width: 100%;
-  margin-bottom: 12px;
+  width: min(100%, 360px);
+  margin: 0 auto 12px;
   border-radius: 8px;
   overflow: hidden;
   background: #000;
   min-height: 60px;
 }
 #qr-reader video {
+  width: 100% !important;
+  height: auto !important;
   border-radius: 8px;
 }
 
@@ -336,19 +338,21 @@ h1 {
           if (supported.width) resolutionConstraints.width = { ideal: 1920 };
           if (supported.height) resolutionConstraints.height = { ideal: 1080 };
 
+          var applyResolution = Promise.resolve();
           if (Object.keys(resolutionConstraints).length > 0) {
-            track.applyConstraints(resolutionConstraints).catch(function(err) {
+            applyResolution = track.applyConstraints(resolutionConstraints).catch(function(err) {
               console.warn('[QrScanner] Resolution constraints failed:', err);
             });
           }
 
           var canControlFocus = !!(supported.focusMode || (capabilities && capabilities.focusMode));
-          if (!canControlFocus) {
-            console.info('[QrScanner] focusMode is not supported on this browser/device. Falling back to device default focus behavior.');
-            return;
-          }
-
-          track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(function(err) {
+          applyResolution.then(function() {
+            if (!canControlFocus) {
+              console.info('[QrScanner] focusMode is not supported on this browser/device. Falling back to device default focus behavior.');
+              return;
+            }
+            return track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+          }).catch(function(err) {
             console.warn('[QrScanner] focusMode=continuous failed:', err);
           });
         } catch (e) {
