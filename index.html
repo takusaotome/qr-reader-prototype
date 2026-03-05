@@ -314,7 +314,7 @@ h1 {
       function isStale() { return generation !== self._startGeneration; }
 
       this._html5QrCode.start(
-        { facingMode: { exact: 'environment' } },
+        { facingMode: { exact: 'environment' }, advanced: [{ focusMode: 'continuous' }] },
         scanConfig,
         function(decodedText) { self._handleScanResult(decodedText); },
         function() { /* no QR detected — silent */ }
@@ -329,7 +329,7 @@ h1 {
         self._html5QrCode = new Html5Qrcode(self._targetElementId);
 
         self._html5QrCode.start(
-          { facingMode: { ideal: 'environment' } },
+          { facingMode: { ideal: 'environment' }, advanced: [{ focusMode: 'continuous' }] },
           scanConfig,
           function(decodedText) { self._handleScanResult(decodedText); },
           function() {}
