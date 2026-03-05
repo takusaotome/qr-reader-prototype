@@ -70,16 +70,14 @@ h1 {
 
 /* Camera preview */
 #qr-reader {
-  width: min(100%, 360px);
-  margin: 0 auto 12px;
+  width: 100%;
+  margin-bottom: 12px;
   border-radius: 8px;
   overflow: hidden;
   background: #000;
   min-height: 60px;
 }
 #qr-reader video {
-  width: 100% !important;
-  height: auto !important;
   border-radius: 8px;
 }
 
@@ -298,6 +296,23 @@ h1 {
 
       if (!this._setState('starting')) return;
 
+      if (!window.isSecureContext &&
+          location.hostname !== 'localhost' &&
+          location.hostname !== '127.0.0.1') {
+        this._handleStartError(new Error('Camera access requires HTTPS (secure context).'));
+        return;
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        this._handleStartError(new Error('This browser does not support getUserMedia.'));
+        return;
+      }
+
+      if (typeof Html5Qrcode !== 'function') {
+        this._handleStartError(new Error('html5-qrcode failed to load.'));
+        return;
+      }
+
       var generation = ++this._startGeneration;
       this._targetElementId = targetElementId;
       this._hasHandledScan = false;
@@ -309,11 +324,22 @@ h1 {
 
       var scanConfig = {
         fps: this.config.fps,
-        qrbox: { width: this.config.qrboxSize, height: this.config.qrboxSize }
+        aspectRatio: 1.333334, // 4:3 improves compatibility with iPad rear camera streams
+        qrbox: function(viewfinderWidth, viewfinderHeight) {
+          // Keep qrbox inside the viewfinder to avoid hidden/invalid boxes on 16:9 streams.
+          var edgeByViewfinder = Math.floor(Math.min(viewfinderWidth, viewfinderHeight) * 0.7);
+          var edge = Math.max(140, Math.min(self.config.qrboxSize, edgeByViewfinder));
+          return { width: edge, height: edge };
+        }
       };
 
       // Guard: ignore stale promise callbacks after destroy()
       function isStale() { return generation !== self._startGeneration; }
+
+      function recreateScanner() {
+        try { self._html5QrCode.clear(); } catch(e) {}
+        self._html5QrCode = new Html5Qrcode(self._targetElementId);
+      }
 
       function applyBestEffortVideoConstraints() {
         try {
@@ -333,6 +359,7 @@ h1 {
           console.log('[QrScanner] Camera supportedConstraints:', supported);
           console.log('[QrScanner] Camera capabilities:', capabilities);
           console.log('[QrScanner] Camera settings:', settings);
+          console.log('[QrScanner] video size:', videoElem.videoWidth + 'x' + videoElem.videoHeight);
 
           var resolutionConstraints = {};
           if (supported.width) resolutionConstraints.width = { ideal: 1920 };
@@ -360,16 +387,45 @@ h1 {
         }
       }
 
-      function tryStart(videoConstraints) {
+      function handleStarted() {
+        if (isStale()) return;
+        self._setState('scanning');
+        applyBestEffortVideoConstraints();
+      }
+
+      function tryStart(cameraConfig) {
         return self._html5QrCode.start(
-          { facingMode: videoConstraints.facingMode },
+          cameraConfig,
           scanConfig,
           function(decodedText) { self._handleScanResult(decodedText); },
           function() { /* no QR detected — silent */ }
-        ).then(function() {
+        ).then(handleStarted);
+      }
+
+      function tryStartByCameraId() {
+        if (!Html5Qrcode.getCameras) {
+          return Promise.reject(new Error('Camera enumeration is not supported in this environment.'));
+        }
+
+        return Html5Qrcode.getCameras().then(function(cameras) {
           if (isStale()) return;
-          self._setState('scanning');
-          applyBestEffortVideoConstraints();
+          if (!cameras || cameras.length === 0) {
+            throw new Error('No camera found on this device.');
+          }
+
+          var backCamera = null;
+          for (var i = 0; i < cameras.length; i++) {
+            var label = (cameras[i].label || '').toLowerCase();
+            if (/back|rear|environment|world|wide|ultra|外|背面|リア/i.test(label)) {
+              backCamera = cameras[i];
+              break;
+            }
+          }
+
+          var selected = backCamera || cameras[0];
+          console.log('[QrScanner] fallback cameraId selected:', selected.id, selected.label || '(no label)');
+          recreateScanner();
+          return tryStart(selected.id);
         });
       }
 
@@ -377,10 +433,13 @@ h1 {
         .catch(function(firstErr) {
           if (isStale()) return;
           console.warn('[QrScanner] exact environment failed, trying ideal:', firstErr);
-          // Recreate instance after failed start
-          try { self._html5QrCode.clear(); } catch(e) {}
-          self._html5QrCode = new Html5Qrcode(self._targetElementId);
+          recreateScanner();
           return tryStart({ facingMode: { ideal: 'environment' } });
+        })
+        .catch(function(secondErr) {
+          if (isStale()) return;
+          console.warn('[QrScanner] ideal environment failed, trying cameraId fallback:', secondErr);
+          return tryStartByCameraId();
         })
         .catch(function(err) {
           if (isStale()) return;
@@ -396,6 +455,10 @@ h1 {
         errorType = 'permission_denied';
       } else if (/not found/i.test(errorMsg) || /no camera/i.test(errorMsg) || /not readable/i.test(errorMsg)) {
         errorType = 'camera_not_found';
+      } else if (/https/i.test(errorMsg) || /secure context/i.test(errorMsg)) {
+        errorType = 'insecure_context';
+      } else if (/not support/i.test(errorMsg) || /getusermedia/i.test(errorMsg) || /media\s*devices?/i.test(errorMsg)) {
+        errorType = 'unsupported_browser';
       }
 
       this._setState('error');
@@ -578,6 +641,12 @@ h1 {
         break;
       case 'camera_not_found':
         userMsg = 'No camera found. Please check that a camera is connected to your device.';
+        break;
+      case 'insecure_context':
+        userMsg = 'Camera requires HTTPS on iOS Safari. Open this page with https:// URL.';
+        break;
+      case 'unsupported_browser':
+        userMsg = 'This browser does not support camera access APIs (getUserMedia).';
         break;
       default:
         userMsg = 'Failed to start camera: ' + errorMessage;
