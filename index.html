@@ -316,12 +316,13 @@ h1 {
       function enableAutofocus() {
         try {
           var videoElem = document.querySelector('#' + self._targetElementId + ' video');
-          if (videoElem && videoElem.srcObject) {
-            var track = videoElem.srcObject.getVideoTracks()[0];
-            if (track && track.getCapabilities && track.getCapabilities().focusMode) {
-              track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
-            }
-          }
+          if (!videoElem || !videoElem.srcObject) return;
+          var track = videoElem.srcObject.getVideoTracks()[0];
+          if (!track || !track.applyConstraints) return;
+          // Apply without checking capabilities — iOS Safari may not report
+          // focusMode in getCapabilities() but still honor the constraint
+          track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] })
+            .catch(function() { /* not supported — ignore */ });
         } catch(e) { /* autofocus not supported — ignore */ }
       }
 
