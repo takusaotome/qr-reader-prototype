@@ -313,49 +313,45 @@ h1 {
       // Guard: ignore stale promise callbacks after destroy()
       function isStale() { return generation !== self._startGeneration; }
 
-      function enableAutofocus() {
-        try {
-          var videoElem = document.querySelector('#' + self._targetElementId + ' video');
-          if (!videoElem || !videoElem.srcObject) return;
-          var track = videoElem.srcObject.getVideoTracks()[0];
-          if (!track || !track.applyConstraints) return;
-          // Apply without checking capabilities — iOS Safari may not report
-          // focusMode in getCapabilities() but still honor the constraint
-          track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] })
-            .catch(function() { /* not supported — ignore */ });
-        } catch(e) { /* autofocus not supported — ignore */ }
-      }
-
-      this._html5QrCode.start(
-        { facingMode: { exact: 'environment' } },
-        scanConfig,
-        function(decodedText) { self._handleScanResult(decodedText); },
-        function() { /* no QR detected — silent */ }
-      ).then(function() {
-        if (isStale()) return;
-        self._setState('scanning');
-        enableAutofocus();
-      }).catch(function(firstErr) {
-        if (isStale()) return;
-        console.warn('[QrScanner] exact environment failed, trying ideal:', firstErr);
-        // Recreate instance after failed start
-        try { self._html5QrCode.clear(); } catch(e) {}
-        self._html5QrCode = new Html5Qrcode(self._targetElementId);
-
-        self._html5QrCode.start(
-          { facingMode: { ideal: 'environment' } },
+      function tryStart(videoConstraints) {
+        return self._html5QrCode.start(
+          { facingMode: videoConstraints.facingMode },
           scanConfig,
           function(decodedText) { self._handleScanResult(decodedText); },
-          function() {}
+          function() { /* no QR detected — silent */ }
         ).then(function() {
           if (isStale()) return;
           self._setState('scanning');
-          enableAutofocus();
-        }).catch(function(secondErr) {
-          if (isStale()) return;
-          self._handleStartError(secondErr);
+          // Apply high resolution + autofocus after camera starts
+          try {
+            var videoElem = document.querySelector('#' + self._targetElementId + ' video');
+            if (videoElem && videoElem.srcObject) {
+              var track = videoElem.srcObject.getVideoTracks()[0];
+              if (track && track.applyConstraints) {
+                track.applyConstraints({
+                  width: { ideal: 1920 },
+                  height: { ideal: 1080 },
+                  advanced: [{ focusMode: 'continuous' }]
+                }).catch(function() {});
+              }
+            }
+          } catch(e) {}
         });
-      });
+      }
+
+      tryStart({ facingMode: { exact: 'environment' } })
+        .catch(function(firstErr) {
+          if (isStale()) return;
+          console.warn('[QrScanner] exact environment failed, trying ideal:', firstErr);
+          // Recreate instance after failed start
+          try { self._html5QrCode.clear(); } catch(e) {}
+          self._html5QrCode = new Html5Qrcode(self._targetElementId);
+          return tryStart({ facingMode: { ideal: 'environment' } });
+        })
+        .catch(function(err) {
+          if (isStale()) return;
+          self._handleStartError(err);
+        });
     },
 
     _handleStartError: function(err) {
