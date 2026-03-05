@@ -313,6 +313,49 @@ h1 {
       // Guard: ignore stale promise callbacks after destroy()
       function isStale() { return generation !== self._startGeneration; }
 
+      function applyBestEffortVideoConstraints() {
+        try {
+          var videoElem = document.querySelector('#' + self._targetElementId + ' video');
+          if (!videoElem || !videoElem.srcObject) return;
+
+          var track = videoElem.srcObject.getVideoTracks()[0];
+          if (!track || !track.applyConstraints) return;
+
+          var supported = {};
+          if (navigator.mediaDevices && navigator.mediaDevices.getSupportedConstraints) {
+            supported = navigator.mediaDevices.getSupportedConstraints();
+          }
+          var capabilities = track.getCapabilities ? track.getCapabilities() : {};
+          var settings = track.getSettings ? track.getSettings() : {};
+
+          console.log('[QrScanner] Camera supportedConstraints:', supported);
+          console.log('[QrScanner] Camera capabilities:', capabilities);
+          console.log('[QrScanner] Camera settings:', settings);
+
+          var resolutionConstraints = {};
+          if (supported.width) resolutionConstraints.width = { ideal: 1920 };
+          if (supported.height) resolutionConstraints.height = { ideal: 1080 };
+
+          if (Object.keys(resolutionConstraints).length > 0) {
+            track.applyConstraints(resolutionConstraints).catch(function(err) {
+              console.warn('[QrScanner] Resolution constraints failed:', err);
+            });
+          }
+
+          var canControlFocus = !!(supported.focusMode || (capabilities && capabilities.focusMode));
+          if (!canControlFocus) {
+            console.info('[QrScanner] focusMode is not supported on this browser/device. Falling back to device default focus behavior.');
+            return;
+          }
+
+          track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(function(err) {
+            console.warn('[QrScanner] focusMode=continuous failed:', err);
+          });
+        } catch (e) {
+          console.warn('[QrScanner] Failed to inspect/apply video constraints:', e);
+        }
+      }
+
       function tryStart(videoConstraints) {
         return self._html5QrCode.start(
           { facingMode: videoConstraints.facingMode },
@@ -322,20 +365,7 @@ h1 {
         ).then(function() {
           if (isStale()) return;
           self._setState('scanning');
-          // Apply high resolution + autofocus after camera starts
-          try {
-            var videoElem = document.querySelector('#' + self._targetElementId + ' video');
-            if (videoElem && videoElem.srcObject) {
-              var track = videoElem.srcObject.getVideoTracks()[0];
-              if (track && track.applyConstraints) {
-                track.applyConstraints({
-                  width: { ideal: 1920 },
-                  height: { ideal: 1080 },
-                  advanced: [{ focusMode: 'continuous' }]
-                }).catch(function() {});
-              }
-            }
-          } catch(e) {}
+          applyBestEffortVideoConstraints();
         });
       }
 
